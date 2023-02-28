@@ -1,0 +1,482 @@
+#Title: Final project proposal
+
+#Description: 
+#Data cleaning.
+#Data analysis.
+
+#Hypothesis: 
+#Null: Immunization factors in developing countries have the same significance 
+# in determining life expectancy levels compared to developed countries. 
+#Alt: Immunization factors in developing countries have a greater significance in 
+# determining the life expectancy level compared to developed countries. 
+#Problem to solve: What factors should be targeted when trying to increase 
+# the life expectancy across developing and developed countries. 
+
+#Immunization factors: 
+
+# 1. Hepatitis B (not significant)
+# 2. Measles (not significant)
+# 3. Polio
+# 4. Diphtheria
+# 5. HIV/AIDS
+
+# Approach: 
+# Divide the dataset in developed and developing countries, run preliminary regression
+# to indeitify significant variables, check the p-values/coefficients for each
+# immunization factor variable. 
+
+# Libraries --------------------------------------------------------------------
+
+#Probably will have to install some of these libraries. 
+
+```{r}
+install.packages('tidyr')
+install.packages('psych')
+install.packages('QuantPsyc')
+install.packages('reshape')
+install.packages('reshape2')
+install.packages('MOTE')
+install.packages('Hmisc')
+install.packages('mice')
+install.packages('corrplot')
+install.packages('cocor')
+install.packages('pwr')
+library(tidyr)
+library (psych)
+library(QuantPsyc)    
+library(ggplot2)		
+library(moments)        
+library(reshape)     	
+library(reshape2)
+library(MOTE)     		
+library(mice)         		 
+library(Hmisc)
+library(ppcor)				
+library(corrplot)   		
+library(cocor)       	       
+library(pwr)                    
+options(scipen = 999)
+```
+# Loading file -----------------------------------------------------------------
+
+```{r}
+path = ("/Users/pratik/Desktop/Harrisburg University programs/Courses/Late Spring Courses 2022/ANLY 500/Project/Final Project Submission/R script and data/Life Expectancy Data.csv")
+
+data = read.csv(path, header = TRUE) #change file name is applicable
+
+View(data)
+```
+# Data Cleaning ================================================================
+
+# 1. Data accuracy-----------------------------------------------------------------
+
+```{r}
+str(data)
+summary(data)
+
+data$Status = factor(data$Status)
+```
+#data = data %>% 
+#  filter(Year %in% c(2010, 2011, 2012, 2013, 2014))    #Notfiltering last 5 years
+
+```{r}
+data = subset(data, subset = (data$Year >= 2010 & data$Year <= 2014)) # filtering from 2010 to 2014
+View(data)
+summary(data)
+```
+
+```{r}
+install.packages('cocor')
+library(cocor)
+correlations = cor(data[ , -c(1,2,3)], use = "pairwise.complete.obs")
+symnum(correlations)
+corrplot(correlations)
+```
+
+# 2. Missing data -----------------------------------------------------------------
+
+```{r}
+miss_data_percentage = function(x){
+  sum(is.na(x))/length(x)*100
+}
+```
+
+```{r}
+missing_rows = apply(data,1,miss_data_percentage)
+missing_rows
+```
+
+```{r}
+table(missing_rows)
+```
+
+
+```{r}
+replace_rows = subset(data, missing_rows <= 45)
+no_replace = subset(data, missing_rows > 45)
+replace_rows
+```
+
+```{r}
+NROW(data)
+NROW(replace_rows)+NROW(no_replace)
+```
+
+```{r}
+missing_2 = apply(data[ , -c(1,2,3)], 2, miss_data_percentage)
+missing_2
+table(missing_2)
+```
+
+#We will exclude the categorical columns
+```{r}
+replace_column = replace_rows[ , -c(1,2,3)]
+no_replace_column = replace_rows[ , c(1,2,3)]
+```
+
+#replacing missing data
+```{r}
+install.packages('mice')
+library(mice)
+temp_no_miss = mice(replace_column, method = 'cart')
+
+nomiss = complete(temp_no_miss, 1)
+
+all_columns = cbind(no_replace_column, nomiss)
+
+all_rows = rbind(no_replace,all_columns)
+
+dim(all_columns)
+```
+
+```{r}
+dim(all_rows)
+```
+
+```{r}
+str(all_rows)
+summary(all_rows)
+```
+
+# 3. Outliers
+
+# We will run a regression model to detect outliers, excluding Categorical 
+# variables from the dataset 
+
+```{r}
+output = lm(Life.expectancy ~ Adult.Mortality + infant.deaths + Alcohol + percentage.expenditure + 
+Hepatitis.B + Measles + BMI + under.five.deaths + Polio + Total.expenditure + Diphtheria + HIV.AIDS + GDP + Population + 
+thinness..1.19.years + thinness.5.9.years + Income.composition.of.resources + Schooling,  data = all_rows)
+
+str(output)
+summary(output)
+```
+
+# 3.1.Leverage
+```{r}
+k=18
+leverage = hatvalues(output)
+cutleverage = (2*k+2) / nrow(all_rows) #same dataset for nrow as used for output
+cutleverage
+```
+
+
+```{r}
+badleverage = as.numeric(leverage > cutleverage)
+badleverage
+table(badleverage)
+```
+# It appears there are 92 values which are above the cutleverage score, which makes them as outliers for Leverage
+
+# 3.2 Cooks
+```{r}
+k=18
+cooks = cooks.distance(output)
+#cutcooks = 4 / (nrow(all_rows) - k - 1) 
+cutcooks = 4 / (nrow(all_rows) - k -1)
+cutcooks
+```
+
+```{r}
+badcooks = as.numeric(cooks > cutcooks)
+table(badcooks)
+```
+# It appears there ate 62 values which are above the cutleverage score, which makes them as outliers for Cooks
+
+#3.3. Mahalanobis
+```{r}
+mahal = mahalanobis(all_columns[ ,-c(1,2,3)],
+                    colMeans(all_columns[,-c(1,2,3)], na.rm = TRUE),
+                    cov(all_columns[,-c(1,2,3)], use = "pairwise.complete.obs"),
+                    tol=1e-20)
+
+cutmahal = qchisq(0.999, ncol(all_columns[ , -c(1,2,3)]))
+ncol(all_columns[ , -c(1,2,3)])
+cutmahal
+```
+
+```{r}
+badmahal = as.numeric(mahal > cutmahal)
+table(badmahal)
+badmahal
+``` 
+# It appears there are 75 observations which are above the cutoff score which makes them as outliers for Mahalanobis
+
+# 3.4 Total outliers
+```{r}
+totalout = badmahal + badleverage + badcooks
+table(totalout)
+```
+
+# As we see that there are 50 outliers common to two conditions 29 outliers common to three, we can say that we have 
+#79 (50+29) outliers.
+```{r}
+no_outliers_data = subset(all_rows, totalout < 2)
+
+dim(no_outliers_data)
+```
+
+```{r}
+str(no_outliers_data)
+```
+# 4 Assumptions ==================================================================
+# We run regression again, but this time on the no_outliers_data dataset by removing outliers and the Population columns to test for assumptions
+```{r}
+output1 = lm(Life.expectancy ~ Adult.Mortality + infant.deaths + Alcohol + percentage.expenditure + Hepatitis.B + Measles + BMI + under.five.deaths + Polio + Total.expenditure + Diphtheria + HIV.AIDS + GDP + Population  + thinness..1.19.years + thinness.5.9.years + Income.composition.of.resources + Schooling, data = no_outliers_data)
+str(output1)
+summary(output1)
+```
+
+
+# Additivity -------------------------------------------------------------------
+```{r}
+correl = cor(no_outliers_data[,-c(1,2,3)], use = "pairwise.complete.obs")
+correl
+symnum(correl)
+corrplot(correl)
+
+summary(output1, correlation = T)
+```
+
+# We have 2 cases of multicollinearity and 2 cases of Singularity
+#Singularity
+   #S.1 Between columns Under.five.deaths and infant.deaths
+      #S.1.1 We will exclude the Infant deaths column to avoid Singularity
+  #S.2 Between columns thinness..1.19.years and thinness.5.9 years.
+      #S.2.2 We will exclude the column thinness.5.9 years to avoid Singularity
+
+# Multicollineriaty
+    #M.1  Between columns GDP and percentage.expenditure
+        # M.1.1 We will exclude the percentage.expenditure column to avoid Multicollinearity
+    #M.2 Between Schooling and Income.composition.of.resources 
+    
+        # M.2.2 We will exclude the Income.composition.of.resources column to avoid Multicollinearity
+```{r}
+final_data = no_outliers_data[ , -c(6,8,20,21)]
+str(final_data)
+```
+
+#Running Regression after excluding the above columns
+```{r}
+output2 = lm(Life.expectancy ~ Adult.Mortality + Alcohol + Hepatitis.B + Measles + BMI + under.five.deaths + Polio + Total.expenditure + Diphtheria + HIV.AIDS + GDP + Population + thinness..1.19.years + Schooling, data = final_data)
+summary(output2)
+str(output2)
+```
+
+# Linearity 
+```{r}
+  standardized = rstudent(output2)
+  fitted = scale(output2$fitted.values)
+  str(fitted)
+  qqnorm(standardized)
+  abline(0,1)
+```
+#It appears that the residuals are centered over 0 with most residuals been between -2 and 2 and almost Linear  aroundthe centre. Hence we can say that we have met the assumption for Linearity.
+
+
+# Normality --------------------------------------------------------------------
+```{r}
+hist(standardized, breaks = 20)
+```
+
+```{r}
+install.packages("moments")
+library(moments)
+skewness(final_data[ , -c(1,2,3)], na.rm = TRUE)
+```
+# The Histogram of the standardized residuals however look normally distributed, with most data close to the centerand spread between -2 and 2. Some of the non-signifcant predictors like Measles and Population are skewed, but this is accpetable as they are not impacting the model been non-significantHence we can say that we have met the assumption for normality
+
+
+```{r}
+kurtosis(final_data[ , -c(1,2,3)], na.rm = TRUE)
+```
+#The distribution looks slightly kurtotic but this is acceptable as most data is centred over 0 and between -2 and 2.
+
+# Homogeneity/Homoscedasticity -------------------------------------------------
+```{r}
+plot(fitted, standardized)
+abline(0,0)
+abline(v = 0)
+```
+#It appears that the residuals are equally spread above and below the X axis and all the way along the X-axis.Hence we can say that we have met the assumption for Homogeniety and Homoscadescticity.
+
+
+# Final real regression
+
+```{r}
+model = lm(Life.expectancy ~ Adult.Mortality + Alcohol + Hepatitis.B + Measles + BMI + under.five.deaths + Polio + Total.expenditure + Diphtheria + HIV.AIDS + GDP + Population + thinness..1.19.years + Schooling, data = final_data)
+summary(model)
+str(model)
+```
+
+
+```{r}
+modelall = lm(Life.expectancy ~., data = final_data)
+summary(modelall)
+````
+
+#Significance of the Overall model.We can say that the overall model is significant as the effect size(R-squared value) is very high at 0.81, the p-value is less than 0.00001 for a high f-statistic of 264.4.
+
+
+#Significance of Individual predictors:
+#It appears from the model that  Hepatitis B, Measles, Polio and population are the only non-significant predictors in our model since they have a p-value more than 0.05 and a small t-statistic. 
+#Schooling seems to be the strongest and the strongest and the most significant positive predictor to predictLife expectancy followed by total expenditure, Alcohol, GDP and Diphtheria in that order. 
+#HIV.AIDS is the strongest negative predictor for Life expectancy followed  by Adult Mortality, Under five deaths,thinness 1 to 19 and Hepatitis B.
+#Alcohol and Diphtheria were shown as positive predictors for Life Expectancy which was an interesting find.
+#For the significant predictors for every one point increase in the variable we get b points increase in the value of 
+#y.Schooling is the strongest positive and most significant predictor for Life Expectancy
+
+```{r}
+library(ggplot2)
+cleanup = theme(panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                panel.background = element_blank(),
+                axis.line = element_line(color = "black"),
+                legend.key = element_rect(fill = "white"),
+                text = element_text(size = 15))
+fitted1 = model$fitted.values
+str(fitted1)
+library(ggplot2)
+scatter = ggplot(final_data, aes(fitted1, Life.expectancy))
+summary(scatter)
+scatter + cleanup
+scatter + cleanup + geom_point() + geom_smooth(method = "lm", color = "black") + xlab("Adult.Mortality + Alcohol  + 
+Hepatitis.B + Measles + BMI + under.five.deaths + Polio + Total.expenditure + Diphtheria + HIV.AIDS + GDP + 
+Population + thinness..1.19.years + Schooling,  data = final_data") + ylab("Life.expectancy")
+```
+
+# t-test and effect size
+```{r}
+names(final_data)
+cleandata = final_data
+```
+
+```{r}
+developed = cleandata %>% 
+  filter("Status" == 1)
+```
+
+```{r}
+notdeveloped = cleandata %>%
+  filter("Status" ==  2)
+```
+
+```{r}
+mean(developed$Life.expectancy)
+
+mean(notdeveloped$Life.expectancy)
+```
+
+
+```{r}
+sd(developed$Life.expectancy)
+
+sd(notdeveloped$Life.expectancy)
+```
+
+```{r}
+length(developed$Life.expectancy)
+
+length(notdeveloped$Life.expectancy)
+```
+
+```{r}
+
+t.test(Life.expectancy ~ Status, data = cleandata,
+       var.equal = T,
+       paired = F)
+```
+
+```{r}
+effect_size = d.ind.t(m1 = mean(developed$Life.expectancy),
+                      m2 = mean(notdeveloped$Life.expectancy),
+                      sd1 = sd(developed$Life.expectancy),
+                      sd2 = sd(notdeveloped$Life.expectancy),
+                      n1 = length(developed$Life.expectancy),
+                      n2 = length(notdeveloped$Life.expectancy),
+                      a = 0.05)
+
+effect_size$d
+```
+
+# Hierarchical Regression:
+```{r}
+developed2 = developed[,-1]
+notdeveloped2 = notdeveloped[,-1]
+
+model_developed = lm(Life.expectancy ~., data = developed2)
+summary(model_developed)
+```
+
+```{r}
+model_notdeveloped = lm(Life.expectancy ~., data = notdeveloped2)
+summary(model_notdeveloped)
+```
+
+# Dropping the non significant variables ---------------------------------------
+```{r}
+developed2 = developed %>% 
+  subset(select = -c(infant.deaths,
+                     Hepatitis.B,
+                     Measles,
+                     Polio,
+                     Diphtheria,
+                     HIV.AIDS,
+                     Population
+  ))
+```
+
+```{r}
+notdeveloped2 <- notdeveloped %>% 
+  subset(select = -c(Alcohol,
+                     Hepatitis.B,
+                     Measles,
+                     Total.expenditure,
+                     Population,
+                     thinness..1.19.years
+  ))
+
+```
+
+```{r}
+model_developed2 = lm(Life.expectancy ~ ., data = developed2)
+summary(model_developed2)
+```
+
+```{r}
+model_notdeveloped2 = lm(Life.expectancy ~ ., data = notdeveloped2)
+summary(model_notdeveloped2)
+```
+
+```{r}
+anova(model_developed,
+      model_developed2)
+```
+
+```{r}
+names(final_data)
+```
+
+# END --------------------------------------------------------------------------
+
+# END --------------------------------------------------------------------------
